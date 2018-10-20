@@ -44,29 +44,19 @@
 #include "contiki.h"
 #include "sys/energest.h"
 
-#include "dev/uart0.h"
-
 #if defined(__AVR__)
 #include <avr/io.h>
 #endif
 
 #include "dev/leds.h"
-//#include "dev/spi.h"
+#include "dev/spi-legacy.h"
 #include "ca-tag.h"
-#include "cc2420_const.h"
 
 #include "net/packetbuf.h"
 #include "net/netstack.h"
 
 #define CHECKSUM_LEN        2
 #define FOOTER_LEN          2
-
-enum write_ram_order {
-  /* Begin with writing the first given byte */
-  WRITE_RAM_IN_ORDER,
-  /* Begin with writing the last given byte */
-  WRITE_RAM_REVERSE
-};
 
 #define DEBUG 0
 #if DEBUG
@@ -87,16 +77,10 @@ enum write_ram_order {
 #define LEDS_OFF(x)
 #endif
 
-void cc2420_arch_init(void);
-
 /* XXX hack: these will be made as Chameleon packet attributes */
 rtimer_clock_t ca_tag_time_of_arrival, ca_tag_time_of_departure;
 
-int ca_tag_authority_level_of_sender;
-
-volatile uint8_t ca_tag_sfd_counter;
 volatile uint16_t ca_tag_sfd_start_time;
-volatile uint16_t ca_tag_sfd_end_time;
 
 static volatile uint16_t last_packet_timestamp;
 /*---------------------------------------------------------------------------*/
@@ -117,21 +101,10 @@ static int pending_packet(void);
 static int ca_tag_cca(void);
 
 static uint8_t receive_on;
-static uint8_t transmit_on;
 static uint8_t packetbuf_cursor;
 static uint8_t expect_high_next;
 
 static uint8_t payload_len_duration;
-
-static void uart0_write_line(char *line)  {
-    int cursor= 0;
-    
-    while(line[cursor] != 0) {
-        uart0_writeb(line[cursor]);
-        //SPI_WRITE(line[cursor]);
-        cursor++;
-    }   
-}
 
 static radio_result_t
 get_value(radio_param_t param, radio_value_t *value)
@@ -176,16 +149,54 @@ const struct radio_driver ca_tag_driver =
   };
 
 /*---------------------------------------------------------------------------*/
+/* Sends a strobe */
+static void
+strobe(enum ca_tag_register regname)
+{
+  TAG_SPI_ENABLE();
+  SPI_WRITE(regname);
+  TAG_SPI_DISABLE();
+}
+/*---------------------------------------------------------------------------*/
 static void
 write_fifo_buf(const uint8_t *buffer, uint16_t count)
 {
   uint8_t i;
-  char temp[3];
-  temp[2] = 0;
   
+  TAG_SPI_ENABLE();
+  SPI_WRITE_FAST(TAG_TXFIFO);
   for(i = 0; i < count; i++) {
-    sprintf(temp, "%x%x", buffer[i] >> 4, buffer[i] & 0x0F);
-    uart0_write_line(temp);
+    SPI_WRITE_FAST((buffer)[i]);
+  }
+  SPI_WAITFORTx_ENDED();
+  TAG_SPI_DISABLE();
+}
+/*---------------------------------------------------------------------------*/
+static void
+getrxdata(uint8_t *buffer, int count)
+{
+  uint8_t i;
+
+  TAG_SPI_ENABLE();
+  SPI_WRITE(TAG_RXFIFO);
+  (void) SPI_RXBUF;
+  for(i = 0; i < count; i++) {
+    SPI_READ(buffer[i]);
+  }
+  clock_delay(1);
+  TAG_SPI_DISABLE();
+}
+/*---------------------------------------------------------------------------*/
+static void
+flushrx(void)
+{
+  uint8_t dummy;
+
+  getrxdata(&dummy, 1);
+  strobe(TAG_SFLUSHRX);
+  strobe(TAG_SFLUSHRX);
+  if(dummy) {
+    /* avoid unused variable compiler warning */
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -194,15 +205,9 @@ wait_for_transmission(void)
 {
   rtimer_clock_t t0;
   t0 = RTIMER_NOW();
-  uint32_t duration = payload_len_duration + payload_len_duration/10 + 5;
-  PRINTF("ca_tag: waiting for TX: %d\n", transmit_on);
-  while(transmit_on 
-      && RTIMER_CLOCK_LT(RTIMER_NOW(), t0 + duration));
-      //&& RTIMER_CLOCK_LT(RTIMER_NOW(), t0 + (RTIMER_SECOND / 2000)));
-
-  if (transmit_on)
-      PRINTF("ca_tag: timeout!\n");
-
+  PRINTF("ca_tag: waiting for TX: %d\n", TAG_SFD_IS_1);
+  while(TAG_SFD_IS_1
+      && RTIMER_CLOCK_LT(RTIMER_NOW(), t0 + (RTIMER_SECOND / 10)));
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -214,10 +219,9 @@ reset_packetbuf() {
 static void
 on(void)
 {
-  printf("ca_tag: actual on\n");
+  PRINTF("ca_tag: actual on\n");
 
-  uart0_write_line("r\n");
-
+  strobe(TAG_SRXON);
   ENERGEST_ON(ENERGEST_TYPE_LISTEN);
   receive_on = 1;
   expect_high_next = 1;
@@ -233,7 +237,7 @@ off(void)
   wait_for_transmission();
 
   ENERGEST_OFF(ENERGEST_TYPE_LISTEN);
-  uart0_write_line("o\n");
+  strobe(TAG_SOFF);
 }
 /*---------------------------------------------------------------------------*/
 static uint8_t locked, lock_on, lock_off;
@@ -252,59 +256,18 @@ static void RELEASE_LOCK(void) {
   locked--;
 }
 /*---------------------------------------------------------------------------*/
-int 
-uart_byte_rx_callback(unsigned char c) {
-    char *buff;
-    char str[2];
-    str[1] = 0;
-    uint8_t value;
-    
-    if (transmit_on && c == 'k') {  // Just finished transmitting
-        PRINTF("ca_tag: callback tx off\n");
-        transmit_on = 0;
-        return 1;
-    } else if (receive_on) {
-        PRINTF("ca_tag: Serial Callback: %c \n", c);
-        if (c == '\n') {
-            expect_high_next = 1;
-            process_poll(&ca_tag_process);
-        } else if (c == 'k') {
-        } else {
-            buff = packetbuf_dataptr();
-            str[0] = c;
-            value = (uint8_t)strtol(str, NULL, 16);
-            if (expect_high_next) {
-                buff[packetbuf_cursor] = value<<4;
-                expect_high_next = 0;
-            } else {
-                buff[packetbuf_cursor] |= value;
-                expect_high_next = 1;
-                packetbuf_cursor++;
-            }
-        } 
-    }
-    return 1;
-}
-/*---------------------------------------------------------------------------*/
 int
 ca_tag_init(void)
 {
   PRINTF("ca_tag: ca_tag_driver_init\n");
-  //ca_tag_off(); // TODO: Turn off the real cc2420?
 
-  cc2420_arch_init();
-
-  /*spi_init();
-  CC2420_DISABLE_FIFOP_INT();
-  CC2420_SPI_ENABLE();
-  SPI_WRITE("o\n");*/
-  uart0_set_input(uart_byte_rx_callback);
-  uart0_init(UART0_BAUD2UBR(115200ul));
-
-  uart0_write_line("o\n");
-//  CC2420_SPI_DISABLE();
+  // Initialize SPI port
+  spi_init();
+  // Set CSN pin as output (Input by default).
+  TAG_CSN_PORT(DIR) |= BV(TAG_CSN_PIN);
+  strobe(TAG_SOFF);
+  
   receive_on = 0;
-  transmit_on = 0;
 
   process_start(&ca_tag_process, NULL);
   return 1;
@@ -317,9 +280,6 @@ ca_tag_transmit(unsigned short payload_len)
   payload_len_duration = payload_len;
   
   GET_LOCK();
-
-  printf("ca_tag: Transmit now\n");
-  //while(i < 30000) i++;
 
   /* The TX FIFO can only hold one packet. Make sure to not overrun
    * FIFO by waiting for transmission to start here and synchronizing
@@ -335,33 +295,33 @@ ca_tag_transmit(unsigned short payload_len)
 #endif
 
   // Initiate transmission
-  uart0_write_line("\n");
-  transmit_on = 1;
+  strobe(TAG_STXON);
 
   for(i = LOOP_20_SYMBOLS; i > 0; i--) {
+	  if (TAG_SFD_IS_1) {
+	      if(receive_on) {
+		ENERGEST_OFF(ENERGEST_TYPE_LISTEN);
+	      }
+	      ENERGEST_ON(ENERGEST_TYPE_TRANSMIT);
+	      /* We wait until transmission has ended so that we get an
+		 accurate measurement of the transmission time.*/
+	      wait_for_transmission();
 
-      if(receive_on) {
-	ENERGEST_OFF(ENERGEST_TYPE_LISTEN);
-      }
-      ENERGEST_ON(ENERGEST_TYPE_TRANSMIT);
-      /* We wait until transmission has ended so that we get an
-	 accurate measurement of the transmission time.*/
-      wait_for_transmission();
+	//#ifdef ENERGEST_CONF_LEVELDEVICE_LEVELS
+	//      ENERGEST_OFF_LEVEL(ENERGEST_TYPE_TRANSMIT,ca_tag_get_txpower());
+	//#endif
+	      ENERGEST_OFF(ENERGEST_TYPE_TRANSMIT);
+	      if(receive_on) {
+		on();
+	      } else {
+		/* We need to explicitly turn off the radio,
+		 * since STXON[CCA] -> TX_ACTIVE -> RX_ACTIVE */
+		off();
+	      }
 
-//#ifdef ENERGEST_CONF_LEVELDEVICE_LEVELS
-//      ENERGEST_OFF_LEVEL(ENERGEST_TYPE_TRANSMIT,ca_tag_get_txpower());
-//#endif
-      ENERGEST_OFF(ENERGEST_TYPE_TRANSMIT);
-      if(receive_on) {
-        on();
-      } else {
-	/* We need to explicitly turn off the radio,
-	 * since STXON[CCA] -> TX_ACTIVE -> RX_ACTIVE */
-        off();
-      }
-
-      RELEASE_LOCK();
-      return RADIO_TX_OK;
+	      RELEASE_LOCK();
+	      return RADIO_TX_OK;
+	  }
   }
 
   /* If we send with cca (cca_on_send), we get here if the packet wasn't
@@ -375,14 +335,14 @@ ca_tag_transmit(unsigned short payload_len)
 static int
 ca_tag_prepare(const void *payload, unsigned short payload_len)
 {
+	uint8_t total_len;
   GET_LOCK();
 
   PRINTF("ca_tag: sending %d bytes\n", payload_len);
 
-  // Set the tag in TX mode.
-  uart0_write_line("s\n");
-
-  /* Write packet to TX FIFO. */
+  strobe(TAG_SFLUSHTX);
+  total_len = payload_len + CHECKSUM_LEN;
+  write_fifo_buf(&total_len, 1);
   write_fifo_buf(payload, payload_len);
   
   RELEASE_LOCK();
@@ -438,15 +398,16 @@ ca_tag_on(void)
 int
 ca_tag_interrupt(void)
 {
-  //CC2420_CLEAR_FIFOP_INT();
-  //process_poll(&ca_tag_process);
+  CC2420_CLEAR_FIFOP_INT();
 
   last_packet_timestamp = ca_tag_sfd_start_time;
+  process_poll(&ca_tag_process);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(ca_tag_process, ev, data)
 {
+	int len;
   PROCESS_BEGIN();
 
   PRINTF("ca_tag_process: started\n");
@@ -456,11 +417,11 @@ PROCESS_THREAD(ca_tag_process, ev, data)
 
     PRINTF("ca_tag_process: calling receiver callback\n");
 
-    //packetbuf_clear();???
+    packetbuf_clear();
     packetbuf_set_attr(PACKETBUF_ATTR_TIMESTAMP, ca_tag_sfd_start_time);
-//    len = ca_tag_read(packetbuf_dataptr(), PACKETBUF_SIZE);
-//    
-    packetbuf_set_datalen(packetbuf_cursor);
+    len = ca_tag_read(packetbuf_dataptr(), PACKETBUF_SIZE);
+
+    packetbuf_set_datalen(len);
     packetbuf_cursor = 0;
 
     NETSTACK_MAC.input();
@@ -472,7 +433,27 @@ PROCESS_THREAD(ca_tag_process, ev, data)
 static int
 ca_tag_read(void *buf, unsigned short bufsize)
 {
-  return 0;
+	//uint8_t footer[FOOTER_LEN];
+	uint8_t len;
+
+	if (!TAG_FIFOP_IS_1) {
+		return 0;
+	}
+
+	GET_LOCK();
+
+	getrxdata(&len, 1);
+
+	// TODO check length is legal...
+
+	getrxdata((uint8_t *) buf, len - FOOTER_LEN);
+	
+	// TODO check CRC etc..
+
+	flushrx();
+	RELEASE_LOCK();
+	
+  return len-FOOTER_LEN;
 }
 /*---------------------------------------------------------------------------*/
 static int
@@ -484,12 +465,12 @@ ca_tag_cca(void)
 int
 ca_tag_receiving_packet(void)
 {
-  return 0;
+  return TAG_SFD_IS_1;
 }
 /*---------------------------------------------------------------------------*/
 static int
 pending_packet(void)
 {
-  return 0;
+  return TAG_FIFOP_IS_1;
 }
 /*---------------------------------------------------------------------------*/

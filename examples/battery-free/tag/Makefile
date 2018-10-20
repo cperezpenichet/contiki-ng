@@ -1,5 +1,5 @@
 CONTIKI = ../../..
-CONTIKI_PROJECT = example-broadcast
+CONTIKI_PROJECT = example-broadcast example-PA
 
 MAKE_MAC = MAKE_MAC_CSMA
 MAKE_NET = MAKE_NET_NULLNET

@@ -41,10 +41,45 @@
 #define CA_TAG_H_
 
 #include "contiki.h"
-#include "dev/radio.h"
-#include "cc2420_const.h"
+#include "isr_compat.h"
+
+/* P2.1 - Input:  SFD from TAG */
+#define TAG_SFD_PORT(type)      P2##type
+#define TAG_SFD_PIN             1
+#define TAG_SFD_IS_1   (!!(TAG_SFD_PORT(IN) & BV(TAG_SFD_PIN)))
+/* P2.0 - Output: SPI Chip Select (CS_N) */
+#define TAG_CSN_PORT(type)      P2##type
+#define TAG_CSN_PIN             0
+/* P1.0 - Input: FIFOP from TAG */
+#define TAG_FIFOP_PORT(type)   P1##type
+#define TAG_FIFOP_PIN          0
+#define TAG_FIFOP_IS_1 (!!(TAG_FIFOP_PORT(IN) & BV(TAG_FIFOP_PIN)))
+
+/*
+ * Enables/disables tag access to the SPI bus (not the bus).
+ * (Chip Select)
+ */
+ /* ENABLE CSn (active low) */
+#define TAG_SPI_ENABLE()     (TAG_CSN_PORT(OUT) &= ~BV(TAG_CSN_PIN))
+ /* DISABLE CSn (active low) */
+#define TAG_SPI_DISABLE()    (TAG_CSN_PORT(OUT) |=  BV(TAG_CSN_PIN))
+#define TAG_SPI_IS_ENABLED() ((TAG_CSN_PORT(OUT) & BV(TAG_CSN_PIN)) != BV(TAG_CSN_PIN))
+
+enum ca_tag_register {
+	TAG_MODE   = 0x00,
+	TAG_TXFIFO = 0x01,
+	TAG_RXFIFO = 0x02,
+	TAG_SOFF   = 0xC0,
+	TAG_STXON  = 0xC1,
+	TAG_SRXON  = 0xC2,
+	TAG_SFLUSHTX = 0xC3,
+	TAG_SFLUSHRX = 0xC4
+};
+
+#define CHECKSUM_LEN 2
 
 int ca_tag_init(void);
+int ca_tag_interrupt(void);
 
 #define CA_TAG_MAX_PACKET_LEN      127
 
@@ -65,12 +100,6 @@ extern const struct radio_driver ca_tag_driver;
 void ca_tag_set_txpower(uint8_t power);
 int ca_tag_get_txpower(void);
 
-/**
- * Interrupt function, called from the simple-ca_tag-arch driver.
- *
- */
-int ca_tag_interrupt(void);
-
 /* XXX hack: these will be made as Chameleon packet attributes */
 extern rtimer_clock_t ca_tag_time_of_arrival,
   ca_tag_time_of_departure;
@@ -80,7 +109,5 @@ int ca_tag_on(void);
 int ca_tag_off(void);
 
 void ca_tag_set_cca_threshold(int value);
-
-//extern const struct aes_128_driver cc2420_aes_128_driver;
 
 #endif /* CA_TAG_H_ */
