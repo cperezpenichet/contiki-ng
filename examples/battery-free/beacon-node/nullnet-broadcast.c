@@ -42,7 +42,6 @@
 #include "net/netstack.h"
 #include "net/nullnet/nullnet.h"
 #include <string.h>
-#include <stdio.h> /* For printf() */
 
 /* Log configuration */
 #include "sys/log.h"

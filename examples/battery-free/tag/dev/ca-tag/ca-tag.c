@@ -102,9 +102,6 @@ static int ca_tag_cca(void);
 
 static uint8_t receive_on;
 static uint8_t packetbuf_cursor;
-static uint8_t expect_high_next;
-
-static uint8_t payload_len_duration;
 
 static radio_result_t
 get_value(radio_param_t param, radio_value_t *value)
@@ -208,6 +205,7 @@ wait_for_transmission(void)
   PRINTF("ca_tag: waiting for TX: %d\n", TAG_SFD_IS_1);
   while(TAG_SFD_IS_1
       && RTIMER_CLOCK_LT(RTIMER_NOW(), t0 + (RTIMER_SECOND / 10)));
+  PRINTF("ca_tag: done waiting for TX: %d\n", TAG_SFD_IS_1);
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -224,13 +222,12 @@ on(void)
   strobe(TAG_SRXON);
   ENERGEST_ON(ENERGEST_TYPE_LISTEN);
   receive_on = 1;
-  expect_high_next = 1;
-  //reset_packetbuf();
 }
 /*---------------------------------------------------------------------------*/
 static void
 off(void)
 {
+  PRINTF("ca_tag: actual off\n");
   receive_on = 0;
 
   /* Wait for transmission to end before turning radio off. */
@@ -277,7 +274,6 @@ static int
 ca_tag_transmit(unsigned short payload_len)
 {
   int i;
-  payload_len_duration = payload_len;
   
   GET_LOCK();
 
@@ -323,10 +319,6 @@ ca_tag_transmit(unsigned short payload_len)
 	      return RADIO_TX_OK;
 	  }
   }
-
-  /* If we send with cca (cca_on_send), we get here if the packet wasn't
-     transmitted because of other channel activity. */
-  //PRINTF("cc2420: do_send() transmission never started\n");
 
   RELEASE_LOCK();
   return RADIO_TX_COLLISION;

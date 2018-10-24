@@ -9,7 +9,7 @@
 #undef NETSTACK_CONF_RADIO
 #define NETSTACK_CONF_RADIO ca_tag_driver
 
-#define ENERGEST_CONF_ON 0
+#define ENERGEST_CONF_ON 1
 
 /* Disable DCO calibration (uses timerB) */
 #undef DCOSYNCH_CONF_ENABLED
@@ -21,5 +21,8 @@
 
 //#define LOG_CONF_LEVEL_NULLNET LOG_LEVEL_DBG
 //#define LOG_CONF_LEVEL_MAC LOG_LEVEL_DBG
+
+#define CSMA_CONF_MAX_BE 0
+//#define CSMA_CONF_MAX_PACKET_PER_NEIGHBOR 1000
 
 #endif /* __PLATFORM_CONF_H__ */
