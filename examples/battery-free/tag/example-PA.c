@@ -41,6 +41,7 @@
 #include "net/netstack.h"
 #include "net/nullnet/nullnet.h"
 #include "net/packetbuf.h"
+#include "sys/energest.h"
 
 #include "dev/leds.h"
 #include "random.h"
@@ -51,14 +52,12 @@
 #define LOG_MODULE "Tag broadcast"
 #define LOG_LEVEL LOG_LEVEL_INFO
 
-#define TDMA 0
-
 #define RTIMER_MILLI (RTIMER_SECOND/1000)
 #define SLOT_DURATION (10 * RTIMER_MILLI)
 #define MAX_SLOTS 7
 #define NUMER_PACKETS 1000
 
-#define WAIT_BEFORE_TX (8*RTIMER_MILLI)
+#define WAIT_BEFORE_TX (1*RTIMER_MILLI)
 
 static struct rtimer rt;
 static short seq_no = 0;
@@ -93,6 +92,7 @@ do_tx(struct rtimer *rtimer, void* ptr) {
 	leds_toggle(LEDS_RED);
 	rtimer_set(rtimer, ref_time, 1, (void (*)(struct rtimer *, void *))do_tx, NULL);
 	if (!in_sync) {
+                NETSTACK_CONF_RADIO.off();
 		in_sync = 1;
 		seq_no = 0;
 	} else	if (seq_no < NUMER_PACKETS) {
@@ -100,19 +100,52 @@ do_tx(struct rtimer *rtimer, void* ptr) {
 		nullnet_len = sizeof(seq_no);
 		NETSTACK_NETWORK.output(NULL);
 		seq_no++;
-		LOG_INFO("Broadcast message sent\n");
+		//LOG_INFO("Broadcast message sent\n");
 	}
 	leds_toggle(LEDS_RED);
 }
 /*---------------------------------------------------------------------------*/
+void 
+energest_report()
+{
+    /* Update all energest times. */
+    energest_flush();
 
+    printf("\nEnergest:\n");
+    printf(" CPU          %lu LPM      %lu DEEP LPM %lud  Total time %lud\n",
+	   (unsigned long)energest_type_time(ENERGEST_TYPE_CPU),
+	   (unsigned long)energest_type_time(ENERGEST_TYPE_LPM),
+	   (unsigned long)energest_type_time(ENERGEST_TYPE_DEEP_LPM),
+	   (unsigned long)ENERGEST_GET_TOTAL_TIME());
+    printf(" Radio LISTEN %lu TRANSMIT %lu OFF      %lu\n",
+	   (unsigned long)energest_type_time(ENERGEST_TYPE_LISTEN),
+	   (unsigned long)energest_type_time(ENERGEST_TYPE_TRANSMIT),
+	   (unsigned long)(ENERGEST_GET_TOTAL_TIME()
+		      - energest_type_time(ENERGEST_TYPE_TRANSMIT)
+		      - energest_type_time(ENERGEST_TYPE_LISTEN)));
+}
+/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(transmit_process, ev, data)
 {
+  static struct  etimer periodic_timer;
+
   PROCESS_BEGIN();
 
   nullnet_set_input_callback(input_callback);
 
   random_init(node_id);
+
+  etimer_set(&periodic_timer, CLOCK_SECOND * 10);
+  printf("ENERGEST_SECOND: %u\n", ENERGEST_SECOND);
+  while(1) {
+    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
+    etimer_reset(&periodic_timer);
+
+    if (seq_no >= NUMER_PACKETS) {
+      energest_report();
+      break;
+    }
+  }
 
   PROCESS_END();
 }
