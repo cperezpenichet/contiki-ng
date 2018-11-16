@@ -69,15 +69,5 @@ PROCESS_THREAD(carrier_test, ev, data) {
      
     NETSTACK_CONF_RADIO.set_value(RADIO_PARAM_POWER_MODE, RADIO_POWER_MODE_CARRIER_ON);
 
-    while (1) {
-        etimer_set(&et, CLOCK_SECOND);
-        PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&et));
-
-	LOG_INFO("Carrier off.\n");
-        NETSTACK_CONF_RADIO.set_value(RADIO_PARAM_POWER_MODE, RADIO_POWER_MODE_CARRIER_OFF);
-	LOG_INFO("Carrier on.\n");
-        NETSTACK_CONF_RADIO.set_value(RADIO_PARAM_POWER_MODE, RADIO_POWER_MODE_CARRIER_ON);
-    }
-    
     PROCESS_END();
 }
