@@ -89,7 +89,7 @@ input_callback(const void *data, uint16_t len,
     LOG_INFO_LLADDR(src);
     LOG_INFO_(" %s\n",(char *)data);
 
-  ref_time = packetbuf_attr(PACKETBUF_ATTR_TIMESTAMP) + 500*RTIMER_MILLI;
+  ref_time = packetbuf_attr(PACKETBUF_ATTR_TIMESTAMP) + 50*RTIMER_MILLI;
 
   if (*(char*)data == 'H') {
       if (!in_sync) {

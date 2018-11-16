@@ -81,11 +81,15 @@
 rtimer_clock_t ca_tag_time_of_arrival, ca_tag_time_of_departure;
 
 volatile uint16_t ca_tag_sfd_start_time;
+volatile uint16_t ca_tag_sfd_end_time;
+volatile uint16_t ca_tag_sfd_counter;
 
 static volatile uint16_t last_packet_timestamp;
 /*---------------------------------------------------------------------------*/
 PROCESS(ca_tag_process, "ca-tag driver");
 /*---------------------------------------------------------------------------*/
+
+void cc2420_arch_init(void);
 
 int ca_tag_on(void);
 int ca_tag_off(void);
@@ -258,8 +262,8 @@ ca_tag_init(void)
 {
   PRINTF("ca_tag: ca_tag_driver_init\n");
 
-  // Initialize SPI port
-  spi_init();
+  cc2420_arch_init();
+
   // Set CSN pin as output (Input by default).
   TAG_CSN_PORT(DIR) |= BV(TAG_CSN_PIN);
   strobe(TAG_SOFF);

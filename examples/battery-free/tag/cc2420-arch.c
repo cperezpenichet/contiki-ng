@@ -43,9 +43,47 @@
 #define CONF_SFD_TIMESTAMPS 0
 #endif /* CONF_SFD_TIMESTAMPS */
 
-#ifdef CONF_SFD_TIMESTAMPS
-#include "cc2420-arch-sfd.h"
-#endif
+extern volatile uint8_t ca_tag_sfd_counter;
+extern volatile uint16_t ca_tag_sfd_start_time;
+extern volatile uint16_t ca_tag_sfd_end_time;
+
+/*---------------------------------------------------------------------------*/
+/* SFD interrupt for timestamping radio packets */
+ISR(TIMERB1, cc2420_timerb1_interrupt)
+{
+  int tbiv;
+
+  /* always read TBIV to clear IFG */
+  tbiv = TBIV;
+  /* read and discard tbiv to avoid "variable set but not used" warning */
+  (void)tbiv;
+  if(TAG_SFD_IS_1) {
+    ca_tag_sfd_counter++;
+    ca_tag_sfd_start_time = TBCCR1;
+  } else {
+    ca_tag_sfd_counter = 0;
+    ca_tag_sfd_end_time = TBCCR1;
+  }
+}
+/*---------------------------------------------------------------------------*/
+void
+ca_tag_arch_sfd_init(void)
+{
+  /* Need to select the special function! */
+  TAG_SFD_PORT(SEL) = BV(TAG_SFD_PIN);
+  
+  /* start timer B - 32768 ticks per second */
+  TBCTL = TBSSEL_1 | TBCLR;
+  
+  /* CM_3 = capture mode - capture on both edges */
+  TBCCTL1 = CM_3 | CAP | SCS;
+  TBCCTL1 |= CCIE;
+  
+  /* Start Timer_B in continuous mode. */
+  TBCTL |= MC1;
+
+  TBR = RTIMER_NOW();
+}
 
 /*---------------------------------------------------------------------------*/
 ISR(CC2420_IRQ, cc2420_port1_interrupt)
@@ -61,14 +99,12 @@ cc2420_arch_init(void)
   spi_init();
 
   /* all input by default, set these as output */
-  CC2420_CSN_PORT(DIR) |= BV(CC2420_CSN_PIN);
-  CC2420_VREG_PORT(DIR) |= BV(CC2420_VREG_PIN);
-  CC2420_RESET_PORT(DIR) |= BV(CC2420_RESET_PIN);
+  TAG_CSN_PORT(DIR) |= BV(TAG_CSN_PIN);
 
 #if CONF_SFD_TIMESTAMPS
-  cc2420_arch_sfd_init();
+  ca_tag_arch_sfd_init();
 #endif
 
-  CC2420_SPI_DISABLE();                /* Unselect radio. */
+  TAG_SPI_DISABLE();                /* Unselect radio. */
 }
 /*---------------------------------------------------------------------------*/

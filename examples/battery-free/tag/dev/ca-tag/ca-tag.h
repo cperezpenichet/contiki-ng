@@ -44,7 +44,7 @@
 #include "isr_compat.h"
 
 /* P2.1 - Input:  SFD from TAG */
-#define TAG_SFD_PORT(type)      P2##type
+#define TAG_SFD_PORT(type)      P4##type
 #define TAG_SFD_PIN             1
 #define TAG_SFD_IS_1   (!!(TAG_SFD_PORT(IN) & BV(TAG_SFD_PIN)))
 /* P2.0 - Output: SPI Chip Select (CS_N) */

@@ -53,8 +53,6 @@ AUTOSTART_PROCESSES(&carrier_test);
 /* --------------------------------------------- */
 
 PROCESS_THREAD(carrier_test, ev, data) {
-    static struct etimer et;
-        
     PROCESS_BEGIN();   
     
     static int channel;
