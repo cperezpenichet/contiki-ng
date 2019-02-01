@@ -92,7 +92,6 @@ do_tx(struct rtimer *rtimer, void* ptr) {
 	leds_toggle(LEDS_RED);
 	rtimer_set(rtimer, ref_time, 1, (void (*)(struct rtimer *, void *))do_tx, NULL);
 	if (!in_sync) {
-                NETSTACK_CONF_RADIO.off();
 		in_sync = 1;
 		seq_no = 0;
 	} else	if (seq_no < NUMER_PACKETS) {

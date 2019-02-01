@@ -107,7 +107,6 @@ void slot(struct rtimer *rtimer, void* ptr) {
 	leds_toggle(LEDS_RED);
 	if (!in_sync) {
 		in_sync = 1;
-		NETSTACK_CONF_RADIO.off();
 	} else if (current_slot == active_slot) {
 	  leds_on(LEDS_GREEN);
 	  
