@@ -16,6 +16,24 @@ the source code.
 
 Contiki-NG started as a fork of the Contiki OS and retains some of its original features.
 
+
+## Carrier-assisted Communications Extensions for Cooja
+
+This repository branch contains extensions to Contiki-NG to support simulating carrier-assisted (backscatter) communications with Cooja and MSPSim. Details on the implementation and radio medium models see the paper: "**Modelling Battery-free Communications for the Cooja Simulator**" 
+by Carlos Pérez-Penichet, Georgios Theodoros Daglaridis, Dilushi Piumwardane and Thiemo Voigt in **EWSN 2019**.
+
+### Usage
+
+1. Clone this repository.
+2. Switch to the `carrier_assited` branch if necessary with: `git checkout carrier_assisted`
+3. Download submodules with `git submodule update --init --recursive`. This will clone repositories with customized versions of Cooja and MSPSim for carrier-assisted communications. 
+4. Start Cooja as usual by doing: `cd tools/cooja` and then `ant run`.
+
+### Examples
+
+Some of the examples used for the evaluation in the paper are available for testing. See under [`examples/battery-free`](./examples/battery-free).
+
+
 Find out more:
 
 * GitHub repository: https://github.com/contiki-ng/contiki-ng
